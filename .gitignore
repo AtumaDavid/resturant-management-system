@@ -1,0 +1,10 @@
+# Compiled binary
+resturant-management-system
+*.exe
+
+# Environment variables / secrets
+.env
+
+# Editor folders
+.idea/
+.vscode/
