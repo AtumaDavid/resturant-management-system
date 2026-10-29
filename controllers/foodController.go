@@ -2,7 +2,7 @@ package controller
 
 import (
 	"context"
-	"fmt"
+	"math"
 	"net/http"
 	"resturant-management-system/database"
 	"resturant-management-system/models"
@@ -40,6 +40,8 @@ func GetFood() gin.HandlerFunc {
 func CreateFood() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+
 		var menu models.Menu
 		var food models.Food
 
@@ -47,20 +49,22 @@ func CreateFood() gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		validatiionErr := validate.Struct(food)
-		if validatiionErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": validatiionErr.Error()})
+
+		validationErr := validate.Struct(food)
+		if validationErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
 			return
 		}
-		err := menuCollection.findOne(ctx, bson.M{"menu_id": food.Menu_id}).Decode(&menu)
-		defer cancel()
+
+		err := menuCollection.FindOne(ctx, bson.M{"menu_id": food.Menu_id}).Decode(&menu)
 		if err != nil {
-			msg := fmt.Sprintf("menu no found")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+			c.JSON(http.StatusNotFound, gin.H{"error": "menu not found"})
 			return
 		}
-		food.Created_at, _ = time.Parse(time.RFC3339, time.Now()).Format(time.RFC3339)
-		food.Updated_at, _ = time.Parse(time.RFC3339, time.Now()).Format(time.RFC3339)
+
+		now := time.Now().Truncate(time.Second)
+		food.Created_at = now
+		food.Updated_at = now
 		food.ID = primitive.NewObjectID()
 		food.Food_id = food.ID.Hex()
 		var num = toFixed(*food.Price, 2)
@@ -68,18 +72,22 @@ func CreateFood() gin.HandlerFunc {
 
 		result, insertErr := foodCollection.InsertOne(ctx, food)
 		if insertErr != nil {
-			msg := fmt.Sprintf("food item was created")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "food item was not created"})
 			return
 		}
-		defer cancel()
-		c.JSON(http.StatusOK, result)
+
+		c.JSON(http.StatusCreated, result)
 	}
 }
 
-func round(num float64) int {}
+func round(num float64) int {
+	return int(num + math.Copysign(0.5, num))
+}
 
-func toFixed(num float64, precision int) int {}
+func toFixed(num float64, precision int) float64 {
+	output := math.Pow(10, float64(precision))
+	return float64(round(num*output)) / output
+}
 
 func UpdateFood() gin.HandlerFunc {
 	return func(c *gin.Context) {}
