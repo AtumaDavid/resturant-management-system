@@ -2,10 +2,12 @@ package controller
 
 import (
 	"context"
+	"log"
 	"math"
 	"net/http"
 	"resturant-management-system/database"
 	"resturant-management-system/models"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,7 +21,48 @@ var foodCollection *mongo.Collection = database.OpenCollection(database.Client, 
 var validate = validator.New()
 
 func GetFoods() gin.HandlerFunc {
-	return func(c *gin.Context) {}
+	return func(c *gin.Context) {
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+
+		recordPerPage, err := strconv.Atoi(c.Query("recordPerPage"))
+		if err != nil || recordPerPage < 1 {
+			recordPerPage = 10
+		}
+		page, err := strconv.Atoi(c.Query("page"))
+		if err != nil || page < 1 {
+			page = 1
+		}
+		startIndex := (page - 1) * recordPerPage
+
+		matchStage := bson.D{{Key: "$match", Value: bson.D{}}}
+
+		groupStage := bson.D{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: nil},
+			{Key: "total_count", Value: bson.D{{Key: "$sum", Value: 1}}},
+			{Key: "data", Value: bson.D{{Key: "$push", Value: "$$ROOT"}}},
+		}}}
+
+		projectStage := bson.D{{Key: "$project", Value: bson.D{
+			{Key: "_id", Value: 0},
+			{Key: "total_count", Value: 1},
+			{Key: "food_items", Value: bson.D{{Key: "$slice", Value: []interface{}{"$data", startIndex, recordPerPage}}}},
+		}}}
+
+		result, err := foodCollection.Aggregate(ctx, mongo.Pipeline{
+			matchStage, groupStage, projectStage,
+		})
+		defer cancel()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while getting foods"})
+		}
+		var allFoods []bson.M
+		if err = result.All(ctx, &allFoods); err != nil {
+			log.Fatal(err)
+		}
+
+		c.JSON(http.StatusOK, allFoods[0])
+
+	}
 }
 
 func GetFood() gin.HandlerFunc {
@@ -90,5 +133,63 @@ func toFixed(num float64, precision int) float64 {
 }
 
 func UpdateFood() gin.HandlerFunc {
-	return func(c *gin.Context) {}
+	return func(c *gin.Context) {
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+
+		foodId := c.Param("food_id")
+		var food models.Food
+
+		if err := c.BindJSON(&food); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		var updateObj bson.D
+
+		if food.Name != nil {
+			updateObj = append(updateObj, bson.E{Key: "name", Value: food.Name})
+		}
+		if food.Price != nil {
+			num := toFixed(*food.Price, 2)
+			updateObj = append(updateObj, bson.E{Key: "price", Value: num})
+		}
+		if food.Food_image != nil {
+			updateObj = append(updateObj, bson.E{Key: "food_image", Value: food.Food_image})
+		}
+		if food.Menu_id != nil {
+			var menu models.Menu
+			err := menuCollection.FindOne(ctx, bson.M{"menu_id": food.Menu_id}).Decode(&menu)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "menu not found"})
+				return
+			}
+			updateObj = append(updateObj, bson.E{Key: "menu_id", Value: food.Menu_id})
+		}
+
+		if len(updateObj) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
+			return
+		}
+
+		food.Updated_at = time.Now().Truncate(time.Second)
+		updateObj = append(updateObj, bson.E{Key: "updated_at", Value: food.Updated_at})
+
+		result, err := foodCollection.UpdateOne(
+			ctx,
+			bson.M{"food_id": foodId},
+			bson.D{{Key: "$set", Value: updateObj}},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "food item update failed"})
+			return
+		}
+
+		if result.MatchedCount == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "food not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, result)
+	}
 }

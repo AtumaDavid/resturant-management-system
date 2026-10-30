@@ -16,6 +16,17 @@ import (
 
 var menuCollection *mongo.Collection = database.OpenCollection(database.Client, "menu")
 
+// inTimeSpan checks that a menu's dates are valid.
+// It returns true when:
+//   - start is before end (dates are in the right order), and
+//   - end is after check (the menu hasn't ended yet).
+//
+// Pass time.Now() as check. Menus scheduled for the future are allowed;
+// menus that have already ended, or have start after end, are rejected.
+func inTimeSpan(start, end, check time.Time) bool {
+	return start.Before(end) && end.After(check)
+}
+
 func GetMenus() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
@@ -68,9 +79,15 @@ func CreateMenu() gin.HandlerFunc {
 			return
 		}
 
-		if menu.Start_Date != nil && menu.End_Date != nil && !menu.Start_Date.Before(*menu.End_Date) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "start_date must be before end_date"})
-			return
+		// if menu.Start_Date != nil && menu.End_Date != nil && !menu.Start_Date.Before(*menu.End_Date) {
+		// 	c.JSON(http.StatusBadRequest, gin.H{"error": "start_date must be before end_date"})
+		// 	return
+		// }
+		if menu.Start_Date != nil && menu.End_Date != nil {
+			if !inTimeSpan(*menu.Start_Date, *menu.End_Date, time.Now()) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "kindly retype the time"})
+				return
+			}
 		}
 
 		now := time.Now().Truncate(time.Second)
@@ -102,9 +119,15 @@ func UpdateMenu() gin.HandlerFunc {
 			return
 		}
 
-		if menu.Start_Date != nil && menu.End_Date != nil && !menu.Start_Date.Before(*menu.End_Date) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "start_date must be before end_date"})
-			return
+		// if menu.Start_Date != nil && menu.End_Date != nil && !menu.Start_Date.Before(*menu.End_Date) {
+		// 	c.JSON(http.StatusBadRequest, gin.H{"error": "start_date must be before end_date"})
+		// 	return
+		// }
+		if menu.Start_Date != nil && menu.End_Date != nil {
+			if !inTimeSpan(*menu.Start_Date, *menu.End_Date, time.Now()) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "kindly retype the time"})
+				return
+			}
 		}
 
 		var updateObj bson.D
