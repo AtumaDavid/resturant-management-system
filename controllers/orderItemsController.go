@@ -6,7 +6,9 @@ import (
 )
 
 func GetOrderItems() gin.HandlerFunc {
-	return func(c *gin.Context) {}
+	return func(c *gin.Context) {
+
+	}
 }
 
 func GetOrderItem() gin.HandlerFunc {
